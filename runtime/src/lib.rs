@@ -11,13 +11,14 @@ use pallet_grandpa::{
 };
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata, U256};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, U256, H160};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{
 		AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify,
+		Dispatchable, PostDispatchInfoOf, DispatchInfoOf
 	},
-	transaction_validity::{TransactionSource, TransactionValidity},
+	transaction_validity::{TransactionSource, TransactionValidity, TransactionValidityError},
 	ApplyExtrinsicResult, MultiSignature,
 };
 use sp_std::prelude::*;
@@ -27,7 +28,7 @@ use sp_version::RuntimeVersion;
 
 
 use pallet_evm::{
-	EnsureAddressRoot, EnsureAddressNever, HashedAddressMapping, SubstrateBlockHashMapping
+	EnsureAddressRoot, EnsureAddressNever, HashedAddressMapping, SubstrateBlockHashMapping,
 };
 // pub use this so we can import it in the chain spec.
 #[cfg(feature = "std")]
@@ -224,7 +225,7 @@ impl pallet_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 
 	type KeyOwnerProof =
-		<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
+	<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
 
 	type KeyOwnerIdentification = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
 		KeyTypeId,
@@ -282,16 +283,6 @@ impl pallet_sudo::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 }
 
-// pub struct FixedGasWeightMapping;
-// impl GasWeightMapping for FixedGasWeightMapping {
-// 	fn gas_to_weight(gas: u64) -> u64 {
-// 		gas.saturating_mul(WEIGHT_PER_GAS)
-// 	}
-// 	fn weight_to_gas(weight: Weight) -> u64 {
-// 		weight.div(WEIGHT_PER_GAS)
-// 		// weight.wrapping_div(WEIGHT_PER_GAS)
-// 	}
-// }
 
 /// Configure the pallet-template in pallets/template.
 impl pallet_template::Config for Runtime {
@@ -325,6 +316,12 @@ impl pallet_evm::Config for Runtime {
 	type WeightPerGas = ();
 }
 
+impl pallet_ethereum::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type StateRoot = pallet_ethereum::IntermediateStateRoot<Self>;
+}
+
+
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
@@ -345,6 +342,7 @@ construct_runtime!(
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template,
 		EVM: pallet_evm,
+		Ethereum: pallet_ethereum,
 	}
 );
 
@@ -368,7 +366,7 @@ pub type SignedExtra = (
 
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
+fp_self_contained::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, SignedExtra>;
 /// Executive: handles dispatch to the various modules.
@@ -393,6 +391,48 @@ mod benches {
 		[pallet_timestamp, Timestamp]
 		[pallet_template, TemplateModule]
 	);
+}
+
+impl fp_self_contained::SelfContainedCall for RuntimeCall {
+	type SignedInfo = H160;
+
+	fn is_self_contained(&self) -> bool {
+		match self {
+			RuntimeCall::Ethereum(call) => call.is_self_contained(),
+			_ => false,
+		}
+	}
+
+	fn check_self_contained(&self) -> Option<Result<Self::SignedInfo, TransactionValidityError>> {
+		match self {
+			RuntimeCall::Ethereum(call) => call.check_self_contained(),
+			_ => None,
+		}
+	}
+
+	fn validate_self_contained(
+		&self,
+		info: &Self::SignedInfo,
+		dispatch_info: &DispatchInfoOf<RuntimeCall>,
+		len: usize,
+	) -> Option<TransactionValidity> {
+		match self {
+			RuntimeCall::Ethereum(call) => call.validate_self_contained(info, dispatch_info, len),
+			_ => None,
+		}
+	}
+
+	fn apply_self_contained(
+		self,
+		info: Self::SignedInfo,
+	) -> Option<sp_runtime::DispatchResultWithInfo<PostDispatchInfoOf<Self>>> {
+		match self {
+			call @ RuntimeCall::Ethereum(pallet_ethereum::Call::transact { .. }) => Some(call.dispatch(
+				RuntimeOrigin::from(pallet_ethereum::RawOrigin::EthereumTransaction(info)),
+			)),
+			_ => None,
+		}
+	}
 }
 
 impl_runtime_apis! {

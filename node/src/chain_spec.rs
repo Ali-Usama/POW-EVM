@@ -1,6 +1,6 @@
 use node_template_runtime::{
 	AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig, EVMConfig,
-	SystemConfig, WASM_BINARY, GenesisAccount
+	SystemConfig, WASM_BINARY, GenesisAccount, EthereumConfig
 };
 use sc_service::ChainType;
 use hex_literal::hex;
@@ -171,5 +171,6 @@ fn testnet_genesis(
 				accounts
 			}
 		},
+		ethereum: EthereumConfig {},
 	}
 }
