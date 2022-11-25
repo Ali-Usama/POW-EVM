@@ -1,6 +1,6 @@
 use node_template_runtime::{
 	AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig, EVMConfig,
-	SystemConfig, WASM_BINARY, GenesisAccount, EthereumConfig
+	SystemConfig, WASM_BINARY, GenesisAccount, EthereumConfig,
 };
 use sc_service::ChainType;
 use hex_literal::hex;
@@ -27,8 +27,8 @@ type AccountPublic = <Signature as Verify>::Signer;
 
 /// Generate an account ID from seed.
 pub fn get_account_id_from_seed<TPublic: Public>(seed: &str) -> AccountId
-where
-	AccountPublic: From<<TPublic::Pair as Pair>::Public>,
+	where
+		AccountPublic: From<<TPublic::Pair as Pair>::Public>,
 {
 	AccountPublic::from(get_from_seed::<TPublic>(seed)).into_account()
 }
@@ -156,17 +156,35 @@ fn testnet_genesis(
 		transaction_payment: Default::default(),
 		evm: EVMConfig {
 			accounts: {
-				// Prefund the "Gerald" account
+				// Prefund the "ALICE" account
 				let mut accounts = BTreeMap::new();
+				accounts.insert(
+					// H160 address of Alice dev account
+					// Derived from SS58 (42 prefix) address
+					// SS58: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+					// hex: 0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d
+					// Using the full hex key, truncating to the first 20 bytes (the first 40 hex chars)
+					H160::from_str("7ed8c8a0C4d1FeA01275fE13F0Ef23bce5CBF8C3")
+						.expect("internal H160 is valid; qed"),
+					GenesisAccount {
+						balance: U256::from_str("0xffffffffffffffffffffffffffffffff")
+							.expect("internal U256 is valid; qed"),
+						code: vec![],
+						nonce: U256::zero(),
+						storage: BTreeMap::new(),
+					},
+				);
+
 				accounts.insert(
 					H160::from_slice(&hex!("6Be02d1d3665660d22FF9624b7BE0551ee1Ac91b")),
 					GenesisAccount {
 						nonce: U256::zero(),
 						// Using a larger number, so I can tell the accounts apart by balance.
-						balance: U256::from(1u64 << 61),
+						balance: U256::from_str("0xffffffffffffffffffffffff")
+							.expect("internal U256 is valid; qed"),
 						code: vec![],
 						storage: BTreeMap::new(),
-					}
+					},
 				);
 				accounts
 			}
