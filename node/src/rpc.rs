@@ -23,13 +23,13 @@ use fc_rpc::{
 	EthBlockDataCacheTask, OverrideHandle, RuntimeApiStorageOverride, SchemaV1Override,
 	SchemaV2Override, SchemaV3Override, StorageOverride,
 };
-use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool};
+use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit};
 use fp_storage::EthereumStorageSchema;
 
 pub use sc_rpc_api::DenyUnsafe;
 use sp_runtime::traits::BlakeTwo256;
 
-
+/// EVM overrides
 pub fn overrides_handle<C, BE>(client: Arc<C>) -> Arc<OverrideHandle<Block>>
 	where
 		C: ProvideRuntimeApi<Block> + StorageProvider<Block, BE> + AuxStore,
@@ -131,7 +131,7 @@ pub fn create_full<C, P, BE, A>(
 	let signers = Vec::new();
 
 	// Limit the number of queryable logs.
-	let max_past_logs: u32 = 1024;
+	// let max_past_logs: u32 = 1024;
 
 	module.merge(System::new(client.clone(), pool.clone(), deny_unsafe).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;

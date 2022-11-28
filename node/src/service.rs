@@ -11,10 +11,9 @@ use sc_telemetry::{Telemetry, TelemetryWorker};
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use std::{future, sync::{Arc, Mutex}, time::Duration, collections::BTreeMap};
 use fc_mapping_sync::{MappingSyncWorker, SyncStrategy};
-use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool};
+use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit};
+use fc_consensus::FrontierBlockImport;
 use futures::StreamExt;
-use sc_cli::SubstrateCli;
-use crate::cli::Cli;
 
 // Our native executor instance.
 pub struct ExecutorDispatch;
@@ -81,11 +80,15 @@ pub fn new_partial(
 		sc_consensus::DefaultImportQueue<Block, FullClient>,
 		sc_transaction_pool::FullPool<Block, FullClient>,
 		(
-			sc_finality_grandpa::GrandpaBlockImport<
-				FullBackend,
+			FrontierBlockImport<
 				Block,
+				sc_finality_grandpa::GrandpaBlockImport<
+					FullBackend,
+					Block,
+					FullClient,
+					FullSelectChain,
+				>,
 				FullClient,
-				FullSelectChain,
 			>,
 			sc_finality_grandpa::LinkHalf<Block, FullClient, FullSelectChain>,
 			Arc<fc_db::Backend<Block>>,
@@ -154,6 +157,12 @@ pub fn new_partial(
 		config,
 	)?;
 
+	let frontier_block_import = FrontierBlockImport::new(
+		grandpa_block_import.clone(),
+		client.clone(),
+		frontier_backend.clone(),
+	);
+
 	let fee_history_limit: u64 = 2048;
 	let fee_history_cache: FeeHistoryCache = Arc::new(Mutex::new(BTreeMap::new()));
 	let fee_history_cache_limit: FeeHistoryCacheLimit = fee_history_limit;
@@ -161,7 +170,7 @@ pub fn new_partial(
 
 	let import_queue =
 		sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _>(ImportQueueParams {
-			block_import: grandpa_block_import.clone(),
+			block_import: frontier_block_import.clone(),
 			justification_import: Some(Box::new(grandpa_block_import.clone())),
 			client: client.clone(),
 			create_inherent_data_providers: move |_, ()| async move {
@@ -189,7 +198,7 @@ pub fn new_partial(
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: (grandpa_block_import, grandpa_link, frontier_backend, telemetry, fee_history),
+		other: (frontier_block_import, grandpa_link, frontier_backend, telemetry, fee_history),
 	})
 }
 

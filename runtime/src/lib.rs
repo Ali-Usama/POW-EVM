@@ -153,6 +153,9 @@ const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 pub const MAXIMUM_BLOCK_WEIGHT: Weight = WEIGHT_PER_SECOND.saturating_mul(2);
 const WEIGHT_PER_GAS: u64 = 20_000;
 
+mod precompiles;
+use precompiles::SubstratePrecompiles;
+
 parameter_types! {
 	pub const BlockHashCount: BlockNumber = 2400;
 	pub const Version: RuntimeVersion = VERSION;
@@ -297,6 +300,7 @@ impl pallet_template::Config for Runtime {
 parameter_types! {
 	pub const LeetChainId: u64 = 1337;
 	pub BlockGasLimit: U256 = U256::from(NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT.ref_time() / WEIGHT_PER_GAS);
+	pub PrecompilesValue: SubstratePrecompiles<Runtime> = SubstratePrecompiles::<_>::new();
 }
 
 impl pallet_evm::Config for Runtime {
@@ -316,8 +320,8 @@ impl pallet_evm::Config for Runtime {
 	type GasWeightMapping = pallet_evm::FixedGasWeightMapping<Self>;
 	type OnChargeTransaction = ();
 	type FindAuthor = ();
-	type PrecompilesType = ();
-	type PrecompilesValue = ();
+	type PrecompilesType = SubstratePrecompiles<Self>;
+	type PrecompilesValue = PrecompilesValue;
 	type WeightPerGas = ();
 }
 
