@@ -22,6 +22,7 @@ use sp_runtime::{
 	transaction_validity::{TransactionSource, TransactionValidity, TransactionValidityError},
 	ApplyExtrinsicResult, MultiSignature,
 };
+use frame_system::{EnsureRoot};
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -43,8 +44,10 @@ pub use fp_evm::GenesisAccount;
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
 	construct_runtime, parameter_types,
+	PalletId,
 	traits::{
 		ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness, StorageInfo,
+		EitherOfDiverse,
 	},
 	weights::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
@@ -58,7 +61,9 @@ pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
-pub use sp_runtime::{Perbill, Permill};
+pub use sp_runtime::{Perbill, Permill, Percent};
+pub mod constants;
+use constants::{currency::*, time::*};
 
 /// Import the template pallet.
 pub use pallet_template;
@@ -297,6 +302,15 @@ impl pallet_template::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 }
 
+impl pallet_difficulty::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+}
+
+impl pallet_rewards::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+}
+
 parameter_types! {
 	pub const LeetChainId: u64 = 1337;
 	pub BlockGasLimit: U256 = U256::from(NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT.ref_time() / WEIGHT_PER_GAS);
@@ -356,7 +370,51 @@ impl pallet_base_fee::Config for Runtime {
 	type DefaultElasticity = DefaultElasticity;
 }
 
+parameter_types! {
+	pub const UncleGenerations: BlockNumber = 5;
+	pub const ProposalBond: Permill = Permill::from_percent(5);
+	pub const ProposalBondMinimum: Balance = 1 * DOLLARS;
+	pub const SpendPeriod: BlockNumber = 1 * DAYS;
+	pub const Burn: Permill = Permill::from_percent(50);
+	pub const TipCountdown: BlockNumber = 1 * DAYS;
+	pub const TipFindersFee: Percent = Percent::from_percent(20);
+	pub const TipReportDepositBase: Balance = 1 * DOLLARS;
+	pub const DataDepositPerByte: Balance = 1 * CENTS;
+	pub const BountyDepositBase: Balance = 1 * DOLLARS;
+	pub const BountyDepositPayoutDelay: BlockNumber = 1 * DAYS;
+	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
+	pub const BountyUpdatePeriod: BlockNumber = 14 * DAYS;
+	pub const MaximumReasonLength: u32 = 16384;
+	pub const BountyCuratorDeposit: Permill = Permill::from_percent(50);
+	pub const BountyValueMinimum: Balance = 5 * DOLLARS;
+	pub const MaxApprovals: u32 = 100;
+}
 
+impl pallet_authorship::Config for Runtime {
+	type FindAuthor = pallet_rewards::FindAuthorFromDigests<Self>;
+	type UncleGenerations = UncleGenerations;
+	type FilterUncle = ();
+	type EventHandler = Rewards;
+}
+
+impl pallet_treasury::Config for Runtime {
+	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u128>;
+	type Currency = Balances;
+	type ApproveOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureRoot<AccountId>>;
+	type RejectOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureRoot<AccountId>>;
+	type RuntimeEvent = RuntimeEvent;
+	type OnSlash = ();
+	type ProposalBond = ProposalBond;
+	type ProposalBondMinimum = ProposalBondMinimum;
+	type ProposalBondMaximum = ();
+	type SpendPeriod = SpendPeriod;
+	type Burn = Burn;
+	type PalletId = TreasuryPalletId;
+	type BurnDestination = ();
+	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
+	type SpendFunds = ();
+	type MaxApprovals = MaxApprovals;
+}
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
@@ -369,11 +427,15 @@ construct_runtime!(
 		System: frame_system,
 		RandomnessCollectiveFlip: pallet_randomness_collective_flip,
 		Timestamp: pallet_timestamp,
+		Authorship: pallet_authorship,
 		Aura: pallet_aura,
 		Grandpa: pallet_grandpa,
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
 		Sudo: pallet_sudo,
+		Difficulty: pallet_difficulty,
+		Rewards: pallet_rewards,
+		Treasury: pallet_treasury,
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template,
 		EVM: pallet_evm,
@@ -699,6 +761,12 @@ impl_runtime_apis! {
 	impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 		fn offchain_worker(header: &<Block as BlockT>::Header) {
 			Executive::offchain_worker(header)
+		}
+	}
+
+	impl sp_consensus_pow::DifficultyApi<Block, sp_core::U256> for Runtime {
+		fn difficulty() -> sp_core::U256 {
+			Difficulty::runtime_difficulty().unwrap()
 		}
 	}
 

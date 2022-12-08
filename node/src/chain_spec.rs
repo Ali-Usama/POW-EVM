@@ -1,6 +1,7 @@
 use node_template_runtime::{
 	AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig, EVMConfig,
-	SystemConfig, WASM_BINARY, GenesisAccount, EthereumConfig,
+	SystemConfig, WASM_BINARY, GenesisAccount, EthereumConfig, TreasuryConfig, DifficultyConfig,
+	RewardsConfig,
 };
 use sc_service::ChainType;
 use hex_literal::hex;
@@ -154,6 +155,13 @@ fn testnet_genesis(
 			key: Some(root_key),
 		},
 		transaction_payment: Default::default(),
+		difficulty: DifficultyConfig {
+			difficulty: 100_000.into()
+		},
+		rewards: RewardsConfig {
+			reward: 100u128
+		},
+		treasury: TreasuryConfig {},
 		evm: EVMConfig {
 			accounts: {
 				// Prefund the "ALICE" account

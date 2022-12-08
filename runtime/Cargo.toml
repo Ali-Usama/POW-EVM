@@ -60,6 +60,8 @@ pallet-base-fee = { git = "https://github.com/paritytech/frontier", branch = "po
 
 # pow dependencies
 sp-consensus-pow = { version = "0.10.0-dev", git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30", default-features = false }
+pallet-treasury = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
+pallet-authorship = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
 
 # Local Dependencies
 pallet-template = { version = "4.0.0-dev", default-features = false, path = "../pallets/template" }
@@ -86,6 +88,7 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime/std",
 	"pallet-aura/std",
+	"pallet-authorship/std",
 	"pallet-balances/std",
 	"pallet-base-fee/std",
 	"pallet-evm/std",
@@ -97,6 +100,7 @@ std = [
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
+	"pallet-treasury/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-aura/std",
