@@ -1,0 +1,36 @@
+[package]
+name = "pallet-rewards"
+version = "4.0.0-dev"
+edition = "2021"
+authors = ["Usama Ali"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+
+frame-support = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30" }
+frame-system = { default-features = false,  git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30" }
+pallet-balances = {  default-features = false,  git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30" }
+sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30" }
+sp-consensus-pow = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30" }
+sp-core = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30" }
+pallet-authorship = { git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"scale-info/std",
+	"frame-support/std",
+	"frame-system/std",
+	"pallet-balances/std",
+	"pallet-authorship/std",
+	"sp-runtime/std",
+	"sp-consensus-pow/std",
+	"sp-core/std"
+]
+
+try-runtime = ["frame-support/try-runtime"]
