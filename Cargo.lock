@@ -4247,7 +4247,7 @@ dependencies = [
  "sc-cli",
  "sc-client-api",
  "sc-consensus",
- "sc-consensus-aura",
+ "sc-consensus-pow",
  "sc-executor",
  "sc-finality-grandpa",
  "sc-keystore",
@@ -4258,11 +4258,12 @@ dependencies = [
  "sc-telemetry",
  "sc-transaction-pool",
  "sc-transaction-pool-api",
+ "sha3-pow",
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
  "sp-consensus",
- "sp-consensus-aura",
+ "sp-consensus-pow",
  "sp-core",
  "sp-finality-grandpa",
  "sp-inherents",
@@ -6139,36 +6140,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sc-consensus-aura"
-version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v0.9.30#a3ed0119c45cdd0d571ad34e5b3ee7518c8cef8d"
-dependencies = [
- "async-trait",
- "futures",
- "log",
- "parity-scale-codec",
- "sc-block-builder",
- "sc-client-api",
- "sc-consensus",
- "sc-consensus-slots",
- "sc-telemetry",
- "sp-api",
- "sp-application-crypto",
- "sp-block-builder",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-aura",
- "sp-consensus-slots",
- "sp-core",
- "sp-inherents",
- "sp-keystore",
- "sp-runtime",
- "substrate-prometheus-endpoint",
- "thiserror",
-]
-
-[[package]]
-name = "sc-consensus-slots"
+name = "sc-consensus-pow"
 version = "0.10.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v0.9.30#a3ed0119c45cdd0d571ad34e5b3ee7518c8cef8d"
 dependencies = [
@@ -6177,17 +6149,18 @@ dependencies = [
  "futures-timer",
  "log",
  "parity-scale-codec",
+ "parking_lot 0.12.1",
  "sc-client-api",
  "sc-consensus",
- "sc-telemetry",
- "sp-arithmetic",
+ "sp-api",
+ "sp-block-builder",
  "sp-blockchain",
  "sp-consensus",
- "sp-consensus-slots",
+ "sp-consensus-pow",
  "sp-core",
  "sp-inherents",
  "sp-runtime",
- "sp-state-machine",
+ "substrate-prometheus-endpoint",
  "thiserror",
 ]
 
@@ -7134,6 +7107,23 @@ checksum = "bdf0c33fae925bdc080598b84bc15c55e7b9a4a43b3c704da051f977469691c9"
 dependencies = [
  "digest 0.10.6",
  "keccak",
+]
+
+[[package]]
+name = "sha3-pow"
+version = "4.0.0-dev"
+dependencies = [
+ "parity-scale-codec",
+ "rand 0.8.5",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-consensus-pow",
+ "sha3",
+ "sp-api",
+ "sp-blockchain",
+ "sp-consensus-pow",
+ "sp-core",
+ "sp-runtime",
 ]
 
 [[package]]
