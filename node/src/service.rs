@@ -192,7 +192,6 @@ pub fn new_partial(
 	// let can_author_with = sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
 
 
-
 	let fee_history_limit: u64 = 2048;
 	let fee_history_cache: FeeHistoryCache = Arc::new(Mutex::new(BTreeMap::new()));
 	let fee_history_cache_limit: FeeHistoryCacheLimit = fee_history_limit;
@@ -350,45 +349,43 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 			.for_each(|()| future::ready(())),
 	);
 
-	if role.is_authority() {
-		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
-			task_manager.spawn_handle(),
-			client.clone(),
-			transaction_pool,
-			prometheus_registry.as_ref(),
-			telemetry.as_ref().map(|x| x.handle()),
-		);
 
-		// let can_author_with =
-		// 	sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
-		let select_chain = sc_consensus::LongestChain::new(backend.clone());
+	let proposer_factory = sc_basic_authorship::ProposerFactory::new(
+		task_manager.spawn_handle(),
+		client.clone(),
+		transaction_pool,
+		prometheus_registry.as_ref(),
+		telemetry.as_ref().map(|x| x.handle()),
+	);
 
-		let address = sp_runtime::MultiSigner::from(sp_keyring::Sr25519Keyring::Alice.public())
-			.into_account()
-			.encode();
+	// let can_author_with =
+	// 	sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
+	let select_chain = sc_consensus::LongestChain::new(backend.clone());
 
-		let (_worker, worker_task) = sc_consensus_pow::start_mining_worker(
-			Box::new(pow_block_import),
-			client,
-			select_chain,
-			MinimalSha3Algorithm,
-			proposer_factory, network.clone(), network.clone(),
-			Some(address),
-			move |_, ()| async move {
-				let provider = sp_timestamp::InherentDataProvider::from_system_time();
-				Ok(provider)
-			},
-			Duration::new(2, 0),
-			Duration::new(10, 0),
-		);
+	let address = sp_runtime::MultiSigner::from(sp_keyring::Sr25519Keyring::Alice.public())
+		.into_account()
+		.encode();
 
+	let (_worker, worker_task) = sc_consensus_pow::start_mining_worker(
+		Box::new(pow_block_import),
+		client,
+		select_chain,
+		MinimalSha3Algorithm,
+		proposer_factory, network.clone(), network.clone(),
+		Some(address),
+		move |_, ()| async move {
+			let provider = sp_timestamp::InherentDataProvider::from_system_time();
+			Ok(provider)
+		},
+		Duration::new(2, 0),
+		Duration::new(10, 0),
+	);
 
-		// the AURA authoring task is considered essential, i.e. if it
-		// fails we take down the service with it.
-		task_manager
-			.spawn_essential_handle()
-			.spawn_blocking("pow", Some("block-authoring"), worker_task);
-	}
+	// the AURA authoring task is considered essential, i.e. if it
+	// fails we take down the service with it.
+	task_manager
+		.spawn_essential_handle()
+		.spawn("pow", Some("block-authoring"), worker_task);
 
 
 	network_starter.start_network();

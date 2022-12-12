@@ -19,7 +19,9 @@ use sp_runtime::{
 		AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify,
 		Dispatchable, PostDispatchInfoOf, DispatchInfoOf, UniqueSaturatedInto,
 	},
-	transaction_validity::{TransactionSource, TransactionValidity, TransactionValidityError},
+	transaction_validity::{
+		TransactionSource, TransactionValidity, TransactionValidityError, InvalidTransaction,
+	},
 	ApplyExtrinsicResult, MultiSignature,
 };
 use frame_system::{EnsureRoot};
@@ -43,11 +45,11 @@ pub use fp_evm::GenesisAccount;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
-	construct_runtime, parameter_types,
+	construct_runtime, parameter_types, Callable,
 	PalletId,
 	traits::{
 		ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness, StorageInfo,
-		EitherOfDiverse,
+		EitherOfDiverse, IsSubType,
 	},
 	weights::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
@@ -62,7 +64,9 @@ use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill, Percent};
+
 pub mod constants;
+
 use constants::{currency::*, time::*};
 
 /// Import the template pallet.
@@ -86,6 +90,10 @@ pub type Index = u32;
 
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
+
+pub mod issuance;
+pub mod block_author;
+pub mod utxo;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -159,6 +167,7 @@ pub const MAXIMUM_BLOCK_WEIGHT: Weight = WEIGHT_PER_SECOND.saturating_mul(2);
 const WEIGHT_PER_GAS: u64 = 20_000;
 
 mod precompiles;
+
 use precompiles::SubstratePrecompiles;
 
 parameter_types! {
@@ -350,6 +359,7 @@ parameter_types! {
 }
 
 pub struct BaseFeeThreshold;
+
 impl pallet_base_fee::BaseFeeThreshold for BaseFeeThreshold {
 	fn lower() -> Permill {
 		Permill::zero()
@@ -416,6 +426,14 @@ impl pallet_treasury::Config for Runtime {
 	type MaxApprovals = MaxApprovals;
 }
 
+impl block_author::Config for Runtime {}
+
+impl utxo::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type BlockAuthor = BlockAuthor;
+	type Issuance = issuance::BitcoinHalving;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime
@@ -435,7 +453,9 @@ construct_runtime!(
 		Sudo: pallet_sudo,
 		Difficulty: pallet_difficulty,
 		Rewards: pallet_rewards,
+		BlockAuthor: block_author::{Pallet, Call, Storage, Inherent},
 		Treasury: pallet_treasury,
+		Utxo: utxo::{Pallet, Call, Storage, Config, Event},
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template,
 		EVM: pallet_evm,
@@ -754,8 +774,24 @@ impl_runtime_apis! {
 			tx: <Block as BlockT>::Extrinsic,
 			block_hash: <Block as BlockT>::Hash,
 		) -> TransactionValidity {
+			if let Some(&utxo::Call::spend{ ref transaction }) = IsSubType::<<Utxo as Callable<Runtime>>::RuntimeCall>::is_sub_type(&tx.0.function) {
+				match Utxo::validate_transaction(&transaction) {
+					// Transaction verification failed
+					Err(e) => {
+						sp_runtime::print(e);
+						return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
+					}
+					// Race condition, or Transaction is good to go
+					Ok(tv) => { return Ok(tv); }
+				}
+			} else {
+				sp_runtime::print("Unable to run race condition");
+			}
+
+			// Fall back to default logic for non UTXO-spending extrinsics
 			Executive::validate_transaction(source, tx, block_hash)
 		}
+
 	}
 
 	impl sp_offchain::OffchainWorkerApi<Block> for Runtime {

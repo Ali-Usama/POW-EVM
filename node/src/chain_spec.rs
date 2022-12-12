@@ -1,12 +1,12 @@
 use node_template_runtime::{
 	AccountId, BalancesConfig, GenesisConfig, Signature, SudoConfig, EVMConfig,
 	SystemConfig, WASM_BINARY, GenesisAccount, EthereumConfig, TreasuryConfig, DifficultyConfig,
-	RewardsConfig,
+	RewardsConfig, UtxoConfig, utxo,
 };
 use sc_service::ChainType;
 use hex_literal::hex;
 // use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{sr25519, Pair, Public, H160, U256};
+use sp_core::{sr25519, Pair, Public, H160, U256, H256};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 use std::{collections::BTreeMap, str::FromStr};
 
@@ -55,6 +55,10 @@ pub fn development_config() -> Result<ChainSpec, String> {
 					get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
 					get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
 				],
+				vec![
+					get_from_seed::<sr25519::Public>("Alice"),
+					get_from_seed::<sr25519::Public>("Bob"),
+				],
 				true,
 			)
 		},
@@ -101,6 +105,10 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 					get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
 					get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
 				],
+				vec![
+					get_from_seed::<sr25519::Public>("Alice"),
+					get_from_seed::<sr25519::Public>("Bob"),
+				],
 				true,
 			)
 		},
@@ -123,6 +131,7 @@ fn testnet_genesis(
 	wasm_binary: &[u8],
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
+	endowed_utxos: Vec<sr25519::Public>,
 	_enable_println: bool,
 ) -> GenesisConfig {
 	GenesisConfig {
@@ -190,5 +199,16 @@ fn testnet_genesis(
 		},
 		ethereum: EthereumConfig {},
 		base_fee: Default::default(),
+		utxo: UtxoConfig {
+			genesis_utxos: endowed_utxos
+				.iter()
+				.map(|x|
+					utxo::TransactionOutput {
+						value: 100 as utxo::Value,
+						pubkey: H256::from_slice(x),
+					}
+				)
+				.collect()
+		},
 	}
 }
