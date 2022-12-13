@@ -1,17 +1,28 @@
 use codec::{Decode, Encode};
-use sc_consensus_pow::{Error, PowAlgorithm};
+use sc_consensus_pow::{Error as PowError, PowAlgorithm};
 use sha3::{Digest, Sha3_256};
 use sp_api::ProvideRuntimeApi;
+use sc_client_api::{backend::AuxStore, blockchain::HeaderBackend};
 use sp_consensus_pow::{DifficultyApi, Seal as RawSeal};
-use sp_core::{H256, U256};
+use sp_core::{blake2_256, H256, U256};
 use sp_runtime::generic::BlockId;
 use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
 
-/// Determine whether the given hash satisfies the given difficulty.
-/// The test is done by multiplying the two together. If the product
-/// overflows the bounds of U256, then the product (and thus the hash)
-/// was too high.
+// Exported module of the whole app
+pub mod app {
+	use sp_application_crypto::{app_crypto, sr25519};
+	use sp_core::crypto::KeyTypeId;
+
+	pub const ID: KeyTypeId = KeyTypeId(*b"crn1");
+
+	app_crypto!(sr25519, ID);
+}
+
+
+// Check if the given hash satisfies the given difficulty
+// Multiply both together. If the product overflows the bounds of U256 then
+// the hash was to high
 pub fn hash_meets_difficulty(hash: &H256, difficulty: U256) -> bool {
 	let num_hash = U256::from(&hash[..]);
 	let (_, overflowed) = num_hash.overflowing_mul(difficulty);
@@ -19,8 +30,8 @@ pub fn hash_meets_difficulty(hash: &H256, difficulty: U256) -> bool {
 	!overflowed
 }
 
-/// A Seal struct that will be encoded to a Vec<u8> as used as the
-/// `RawSeal` type.
+
+// A Seal struct to encode as Vec<u8> and use as the 'RawSeal' type
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
 pub struct Seal {
 	pub difficulty: U256,
@@ -28,8 +39,8 @@ pub struct Seal {
 	pub nonce: U256,
 }
 
-/// A not-yet-computed attempt to solve the proof of work. Calling the
-/// compute method will compute the hash and return the seal.
+
+// An attempt to solve a PoW
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
 pub struct Compute {
 	pub difficulty: U256,
@@ -49,56 +60,8 @@ impl Compute {
 	}
 }
 
-/// A minimal PoW algorithm that uses Sha3 hashing.
-/// Difficulty is fixed at 1_000_000
-#[derive(Clone)]
-pub struct MinimalSha3Algorithm;
 
-// Here we implement the general PowAlgorithm trait for our concrete Sha3Algorithm
-impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalSha3Algorithm {
-	type Difficulty = U256;
-
-	fn difficulty(&self, _parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
-		// Fixed difficulty hardcoded here
-		Ok(U256::from(1_000_000))
-	}
-
-	fn verify(
-		&self,
-		_parent: &BlockId<B>,
-		pre_hash: &H256,
-		_pre_digest: Option<&[u8]>,
-		seal: &RawSeal,
-		difficulty: Self::Difficulty,
-	) -> Result<bool, Error<B>> {
-		// Try to construct a seal object by decoding the raw seal given
-		let seal = match Seal::decode(&mut &seal[..]) {
-			Ok(seal) => seal,
-			Err(_) => return Ok(false),
-		};
-
-		// See whether the hash meets the difficulty requirement. If not, fail fast.
-		if !hash_meets_difficulty(&seal.work, difficulty) {
-			return Ok(false);
-		}
-
-		// Make sure the provided work actually comes from the correct pre_hash
-		let compute = Compute {
-			difficulty,
-			pre_hash: *pre_hash,
-			nonce: seal.nonce,
-		};
-
-		if compute.compute() != seal {
-			return Ok(false);
-		}
-
-		Ok(true)
-	}
-}
-
-/// A complete PoW Algorithm that uses Sha3 hashing.
-/// Needs a reference to the client so it can grab the difficulty from the runtime.
+// A simple Sha3 hashing algorithm
 pub struct Sha3Algorithm<C> {
 	client: Arc<C>,
 }
@@ -109,35 +72,42 @@ impl<C> Sha3Algorithm<C> {
 	}
 }
 
-// Manually implement clone. Deriving doesn't work because
-// it'll derive impl<C: Clone> Clone for Sha3Algorithm<C>. But C in practice isn't Clone.
 impl<C> Clone for Sha3Algorithm<C> {
 	fn clone(&self) -> Self {
 		Self::new(self.client.clone())
 	}
 }
 
-// Here we implement the general PowAlgorithm trait for our concrete Sha3Algorithm
-impl<B: BlockT<Hash = H256>, C> PowAlgorithm<B> for Sha3Algorithm<C>
-where
-	C: ProvideRuntimeApi<B>,
-	C::Api: DifficultyApi<B, U256>,
+
+// Implementing PowAlgorithm trait is a must
+impl<B: BlockT<Hash=H256>, C> PowAlgorithm<B> for Sha3Algorithm<C>
+	where
+		C: HeaderBackend<B> + AuxStore + ProvideRuntimeApi<B>,
+		C::Api: DifficultyApi<B, U256>,
 {
 	type Difficulty = U256;
 
-	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+	// Get the next block's difficulty
+	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, PowError<B>> {
 		let parent_id = BlockId::<B>::hash(parent);
-		self.client
+		let difficulty = self
+			.client
 			.runtime_api()
 			.difficulty(&parent_id)
-			.map_err(|err| {
-				sc_consensus_pow::Error::Environment(format!(
-					"Fetching difficulty from runtime failed: {:?}",
-					err
-				))
-			})
+			.map_err(|e| {
+				PowError::Environment(format!("Fetching difficulty from runtime failed: {:?}", e))
+			});
+
+		difficulty
 	}
 
+	// Break a tie situation when choosing a chain fork
+	fn break_tie(&self, own_seal: &RawSeal, new_seal: &RawSeal) -> bool {
+		blake2_256(&own_seal[..]) > blake2_256(&new_seal[..])
+	}
+
+
+	// Verify that the difficulty is valid against given seal
 	fn verify(
 		&self,
 		_parent: &BlockId<B>,
@@ -145,19 +115,19 @@ where
 		_pre_digest: Option<&[u8]>,
 		seal: &RawSeal,
 		difficulty: Self::Difficulty,
-	) -> Result<bool, Error<B>> {
+	) -> Result<bool, PowError<B>> {
 		// Try to construct a seal object by decoding the raw seal given
 		let seal = match Seal::decode(&mut &seal[..]) {
 			Ok(seal) => seal,
 			Err(_) => return Ok(false),
 		};
 
-		// See whether the hash meets the difficulty requirement. If not, fail fast.
+		// Check if hash meets the difficulty
 		if !hash_meets_difficulty(&seal.work, difficulty) {
 			return Ok(false);
 		}
 
-		// Make sure the provided work actually comes from the correct pre_hash
+		// Check if the provided work comes from the correct pre_hash
 		let compute = Compute {
 			difficulty,
 			pre_hash: *pre_hash,
@@ -169,5 +139,13 @@ where
 		}
 
 		Ok(true)
+	}
+
+	fn preliminary_verify(
+		&self,
+		_pre_hash: &<B as BlockT>::Hash,
+		_seal: &RawSeal,
+	) -> Result<Option<bool>, PowError<B>> {
+		Ok(None)
 	}
 }

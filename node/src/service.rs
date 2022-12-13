@@ -6,18 +6,26 @@ use sc_client_api::{BlockBackend, BlockchainEvents, ExecutorProvider};
 pub use sc_executor::NativeElseWasmExecutor;
 use sc_finality_grandpa::SharedVoterState;
 use sc_keystore::LocalKeystore;
+use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager, BasePath};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 // use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
-use std::{future, sync::{Arc, Mutex}, time::Duration, collections::BTreeMap};
+use std::{
+	future, thread, sync::{Arc, Mutex}, time::Duration, collections::BTreeMap, path::PathBuf,
+	str::FromStr,
+};
 use fc_mapping_sync::{MappingSyncWorker, SyncStrategy};
 use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit};
 use fc_consensus::FrontierBlockImport;
 // use sp_consensus::CanAuthorWithNativeNativeVersion;
 use futures::StreamExt;
 use sp_runtime::traits::IdentifyAccount;
-use sp_core::Encode;
+use sp_core::{
+	Encode, U256, H256, crypto::{Ss58AddressFormat, Ss58AddressFormatRegistry, UncheckedFrom, Ss58Codec},
+	Pair,
+};
 use sha3_pow::*;
+use frame_benchmarking::log::*;
 
 // Our native executor instance.
 pub struct ExecutorDispatch;
@@ -79,7 +87,7 @@ type POWBlockImport = sc_consensus_pow::PowBlockImport<
 	Arc<FullClient>,
 	FullClient,
 	FullSelectChain,
-	MinimalSha3Algorithm,
+	Sha3Algorithm<FullClient>,
 	Box<
 		dyn sp_inherents::CreateInherentDataProviders<
 			Block,
@@ -158,11 +166,11 @@ pub fn new_partial(
 		client.clone(),
 	);
 
-
+	let algorithm = Sha3Algorithm::new(client.clone());
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
 		client.clone(),
-		MinimalSha3Algorithm,
+		algorithm.clone(),
 		0,
 		select_chain.clone(),
 		Box::new(move |_, ()| async move {
@@ -200,7 +208,7 @@ pub fn new_partial(
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import.clone()),
 		None,
-		MinimalSha3Algorithm,
+		algorithm,
 		&task_manager.spawn_essential_handle(),
 		None,
 	)?;
@@ -224,8 +232,59 @@ fn remote_keystore(_url: &String) -> Result<Arc<LocalKeystore>, &'static str> {
 	Err("Remote Keystore not supported.")
 }
 
+pub fn decode_author(
+	author: Option<&str>,
+	keystore: SyncCryptoStorePtr,
+	keystore_path: Option<PathBuf>,
+) -> Result<sha3_pow::app::Public, String> {
+	if let Some(author) = author {
+		if author.starts_with("0x") {
+			Ok(sha3_pow::app::Public::unchecked_from(
+				H256::from_str(&author[2..]).map_err(|_| "Invalid author account".to_string())?,
+			)
+				.into())
+		} else {
+			// This line compiles if sp_core::crypto std feature is enabled
+			let (address, version) = sha3_pow::app::Public::from_ss58check_with_version(author)
+				.map_err(|_| "Invalid author address".to_string())?;
+			if version != Ss58AddressFormat::from(Ss58AddressFormatRegistry::BareSr25519Account) {
+				return Err("Invalid author version".to_string());
+			}
+			Ok(address)
+		}
+	} else {
+		info!("The node is configured for mining, but no author key is provided.");
+
+		// This line compiles if sp_application_crypto std feature is enabled
+		let (pair, phrase, _) = sha3_pow::app::Pair::generate_with_phrase(None);
+
+		SyncCryptoStore::insert_unknown(
+			&*keystore.as_ref(),
+			sha3_pow::app::ID,
+			&phrase,
+			pair.public().as_ref(),
+		)
+			.map_err(|e| format!("Registering mining key failed: {:?}", e))?;
+
+		info!(
+			"Generated a mining key with address: {}",
+			pair.public()
+				.to_ss58check_with_version(Ss58AddressFormat::from(Ss58AddressFormatRegistry::BareSr25519Account))
+		);
+
+		match keystore_path {
+			Some(path) => info!("You can go to {:?} to find the seed phrase of the mining key.", path),
+			None => warn!("Keystore is not local. This means that your mining key will be lost when exiting the program. This should only happen if you are in dev mode."),
+		}
+
+		Ok(pair.public())
+	}
+}
+
 /// Builds a new service for a full client.
-pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> {
+pub fn new_full(
+	mut config: Configuration, author: Option<&str>
+) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
 		backend,
@@ -286,6 +345,7 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 	let prometheus_registry = config.prometheus_registry().cloned();
 	let is_authority = config.role.is_authority();
 	let (fee_history_cache, fee_history_cache_limit) = fee_history;
+	let keystore_path = config.keystore.path().map(|p| p.to_owned());
 
 	let rpc_extensions_builder = {
 		let client = client.clone();
@@ -349,7 +409,7 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 			.for_each(|()| future::ready(())),
 	);
 
-
+	let algorithm = Sha3Algorithm::new(client.clone());
 	let proposer_factory = sc_basic_authorship::ProposerFactory::new(
 		task_manager.spawn_handle(),
 		client.clone(),
@@ -362,17 +422,15 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 	// 	sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
 	let select_chain = sc_consensus::LongestChain::new(backend.clone());
 
-	let address = sp_runtime::MultiSigner::from(sp_keyring::Sr25519Keyring::Alice.public())
-		.into_account()
-		.encode();
+	let author = decode_author(author, keystore_container.sync_keystore(), keystore_path)?;
 
 	let (_worker, worker_task) = sc_consensus_pow::start_mining_worker(
 		Box::new(pow_block_import),
 		client,
 		select_chain,
-		MinimalSha3Algorithm,
+		algorithm.clone(),
 		proposer_factory, network.clone(), network.clone(),
-		Some(address),
+		Some(author.encode()),
 		move |_, ()| async move {
 			let provider = sp_timestamp::InherentDataProvider::from_system_time();
 			Ok(provider)
@@ -386,6 +444,33 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 	task_manager
 		.spawn_essential_handle()
 		.spawn("pow", Some("block-authoring"), worker_task);
+
+	// Start Mining
+	// (from recipes a bit modified)
+	let mut nonce: U256 = U256::from(0);
+	thread::spawn(move || loop {
+		let worker = _worker.clone();
+		let metadata = worker.metadata();
+		if let Some(metadata) = metadata {
+			let compute = Compute {
+				difficulty: metadata.difficulty,
+				pre_hash: metadata.pre_hash,
+				nonce,
+			};
+			let seal = compute.compute();
+			if hash_meets_difficulty(&seal.work, seal.difficulty) {
+				nonce = U256::from(0);
+				let _ = futures::executor::block_on(worker.submit(seal.encode()));
+			} else {
+				nonce = nonce.saturating_add(U256::from(1));
+				if nonce == U256::MAX {
+					nonce = U256::from(0);
+				}
+			}
+		} else {
+			thread::sleep(Duration::new(1, 0));
+		}
+	});
 
 
 	network_starter.start_network();

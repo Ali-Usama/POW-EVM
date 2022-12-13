@@ -6,6 +6,7 @@ version = '4.0.0-dev'
 
 [dependencies]
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
+scale-info = { version = "2.3.0", default-features = false, features = ["derive"] }
 sha3 = { version="0.10.6" }
 rand = { version = "0.8.5", features = ["small_rng"] }
 sp-api = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
@@ -16,3 +17,4 @@ sp-runtime = { version = "6.0.0", default-features = false, git = "https://githu
 sc-consensus = { version = "0.10.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
 sc-consensus-pow = { version = "0.10.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
 sc-client-api = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
+sp-application-crypto = { version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }

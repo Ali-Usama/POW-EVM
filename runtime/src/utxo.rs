@@ -122,7 +122,7 @@ decl_module! {
 			match T::BlockAuthor::block_author() {
 				// Block author did not provide key to claim reward
 				None => Self::deposit_event(Event::RewardsWasted),
-				// Block author did provide key, so issue thir reward
+				// Block author did provide key, so issue their reward
 				Some(author) => Self::disperse_reward(&author),
 			}
 		}
