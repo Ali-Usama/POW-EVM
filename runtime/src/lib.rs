@@ -144,7 +144,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 /// up by `pallet_aura` to implement `fn slot_duration()`.
 ///
 /// Change this to adjust the block time.
-pub const MILLISECS_PER_BLOCK: u64 = 6000;
+pub const MILLISECS_PER_BLOCK: u64 = 10000;
 
 // NOTE: Currently it is not possible to change the slot duration after the chain has started.
 //       Attempting to do so will brick block production.
@@ -327,25 +327,25 @@ parameter_types! {
 }
 
 impl pallet_evm::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-
-	type BlockGasLimit = BlockGasLimit;
-	type ChainId = LeetChainId;
-	type BlockHashMapping = EthereumBlockHashMapping<Self>;
-	type Runner = pallet_evm::runner::stack::Runner<Self>;
-
-	type CallOrigin = EnsureAddressRoot<AccountId>;
-	type WithdrawOrigin = EnsureAddressNever<AccountId>;
-	type AddressMapping = HashedAddressMapping<BlakeTwo256>;
-
 	type FeeCalculator = BaseFee;
 	type GasWeightMapping = pallet_evm::FixedGasWeightMapping<Self>;
-	type OnChargeTransaction = ();
-	type FindAuthor = ();
+
+	type WeightPerGas = ();
+	type BlockHashMapping = EthereumBlockHashMapping<Self>;
+	type CallOrigin = EnsureAddressRoot<AccountId>;
+	type WithdrawOrigin = EnsureAddressNever<AccountId>;
+
+	type AddressMapping = HashedAddressMapping<BlakeTwo256>;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+
 	type PrecompilesType = SubstratePrecompiles<Self>;
 	type PrecompilesValue = PrecompilesValue;
-	type WeightPerGas = ();
+	type ChainId = LeetChainId;
+	type BlockGasLimit = BlockGasLimit;
+	type Runner = pallet_evm::runner::stack::Runner<Self>;
+	type OnChargeTransaction = ();
+	type FindAuthor = ();
 }
 
 impl pallet_ethereum::Config for Runtime {
@@ -408,7 +408,6 @@ impl pallet_authorship::Config for Runtime {
 }
 
 impl pallet_treasury::Config for Runtime {
-	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u128>;
 	type Currency = Balances;
 	type ApproveOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureRoot<AccountId>>;
 	type RejectOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureRoot<AccountId>>;
@@ -424,6 +423,7 @@ impl pallet_treasury::Config for Runtime {
 	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
 	type SpendFunds = ();
 	type MaxApprovals = MaxApprovals;
+	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u128>;
 }
 
 impl block_author::Config for Runtime {}

@@ -435,7 +435,9 @@ pub fn new_full(
 			let provider = sp_timestamp::InherentDataProvider::from_system_time();
 			Ok(provider)
 		},
-		Duration::new(2, 0),
+		// Time to wait for a new block before starting to mine a new one
+		Duration::new(10, 0),
+		// How long to take to actually build the block (i.e. executing extrinsic)
 		Duration::new(10, 0),
 	);
 
