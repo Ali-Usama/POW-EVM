@@ -9,11 +9,13 @@ use std::sync::Arc;
 use std::collections::BTreeMap;
 
 use jsonrpsee::RpcModule;
-use node_template_runtime::{opaque::Block, AccountId, Balance, Index, Hash};
+use node_template_runtime::{opaque::Block, AccountId, Balance, Index, Hash, BlockNumber};
 use sc_client_api::{backend::{Backend, StorageProvider, StateBackend},
 					client::BlockchainEvents,
 					AuxStore};
 use sc_network::NetworkService;
+use sc_rpc::SubscriptionTaskExecutor;
+use sc_finality_grandpa::{FinalityProofProvider, GrandpaJustificationStream, SharedVoterState, SharedAuthoritySet};
 use sc_transaction_pool::{ChainApi, Pool};
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
@@ -28,6 +30,20 @@ use fp_storage::EthereumStorageSchema;
 
 pub use sc_rpc_api::DenyUnsafe;
 use sp_runtime::traits::BlakeTwo256;
+
+/// Extra dependencies for GRANDPA
+pub struct GrandpaDeps<B> {
+	/// Voting round info.
+	pub shared_voter_state: SharedVoterState,
+	/// Authority set info.
+	pub shared_authority_set: SharedAuthoritySet<Hash, BlockNumber>,
+	/// Receives notifications about justification events from Grandpa.
+	pub justification_stream: GrandpaJustificationStream<Block>,
+	/// Executor to drive the subscription manager in the Grandpa RPC handler.
+	pub subscription_executor: SubscriptionTaskExecutor,
+	/// Finality proof provider.
+	pub finality_provider: Arc<FinalityProofProvider<B, Block>>,
+}
 
 /// EVM overrides
 pub fn overrides_handle<C, BE>(client: Arc<C>) -> Arc<OverrideHandle<Block>>
@@ -66,7 +82,7 @@ pub fn overrides_handle<C, BE>(client: Arc<C>) -> Arc<OverrideHandle<Block>>
 
 
 /// Full client dependencies.
-pub struct FullDeps<C, P, A: ChainApi> {
+pub struct FullDeps<C, P, B, A: ChainApi> {
 	/// The client instance to use.
 	pub client: Arc<C>,
 	/// Transaction pool instance.
@@ -87,11 +103,13 @@ pub struct FullDeps<C, P, A: ChainApi> {
 	pub fee_history_cache_limit: FeeHistoryCacheLimit,
 	/// Cache for Ethereum Block Data
 	pub block_data_cache: Arc<EthBlockDataCacheTask<Block>>,
+	/// GRANDPA specific dependencies.
+	pub grandpa: GrandpaDeps<B>,
 }
 
 /// Instantiate all full RPC extensions.
-pub fn create_full<C, P, BE, A>(
-	deps: FullDeps<C, P, A>,
+pub fn create_full<C, P, B, BE, A>(
+	deps: FullDeps<C, P, B, A>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
 	where
 		BE: Backend<Block> + 'static,
@@ -109,18 +127,29 @@ pub fn create_full<C, P, BE, A>(
 		C::Api: fp_rpc::EthereumRuntimeRPCApi<Block>,
 		P: TransactionPool<Block=Block> + 'static,
 		A: ChainApi<Block=Block> + 'static,
+		B: Backend<Block> + Send + Sync + 'static,
+		B::State: StateBackend<sp_runtime::traits::HashFor<Block>>,
 {
 	use fc_rpc::{Eth, EthApiServer, Net, NetApiServer};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
+	use sc_finality_grandpa_rpc::{Grandpa, GrandpaApiServer};
 
 	let mut module = RpcModule::new(());
 	let FullDeps {
 		client, pool, graph,
 		deny_unsafe, is_authority, network, backend,
 		fee_history_cache, fee_history_cache_limit,
-		block_data_cache
+		block_data_cache, grandpa
 	} = deps;
+
+	let GrandpaDeps {
+		shared_voter_state,
+		shared_authority_set,
+		justification_stream,
+		subscription_executor,
+		finality_provider,
+	} = grandpa;
 	// We won't use the override feature
 	let overrides = Arc::new(OverrideHandle {
 		schemas: BTreeMap::new(),
@@ -154,6 +183,16 @@ pub fn create_full<C, P, BE, A>(
 			10,
 		)
 			.into_rpc())?;
+	module.merge(
+		Grandpa::new(
+			subscription_executor,
+			shared_authority_set.clone(),
+			shared_voter_state,
+			justification_stream,
+			finality_provider,
+		)
+			.into_rpc(),
+	)?;
 
 	// Extend this RPC with a custom API by using the following syntax.
 	// `YourRpcStruct` should have a reference to a client, which is needed

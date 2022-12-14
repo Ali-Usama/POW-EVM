@@ -1,5 +1,5 @@
 use node_template_runtime::{
-	AccountId, BalancesConfig, GenesisConfig, Signature, SudoConfig, EVMConfig,
+	AccountId, BalancesConfig, GrandpaConfig, GenesisConfig, Signature, SudoConfig, EVMConfig,
 	SystemConfig, WASM_BINARY, GenesisAccount, EthereumConfig, TreasuryConfig, DifficultyConfig,
 	RewardsConfig, UtxoConfig, utxo,
 };
@@ -9,6 +9,7 @@ use hex_literal::hex;
 use sp_core::{sr25519, Pair, Public, H160, U256, H256};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 use std::{collections::BTreeMap, str::FromStr};
+use sp_finality_grandpa::AuthorityId as GrandpaId;
 
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
@@ -21,6 +22,10 @@ pub fn get_from_seed<TPublic: Public>(seed: &str) -> <TPublic::Pair as Pair>::Pu
 	TPublic::Pair::from_string(&format!("//{}", seed), None)
 		.expect("static values are valid; qed")
 		.public()
+}
+
+pub fn authority_keys_from_seed(s: &str) -> GrandpaId {
+	get_from_seed::<GrandpaId>(s)
 }
 
 type AccountPublic = <Signature as Verify>::Signer;
@@ -48,6 +53,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
 				wasm_binary,
 				// Sudo account
 				get_account_id_from_seed::<sr25519::Public>("Alice"),
+				vec![authority_keys_from_seed("Alice")],
 				// Pre-funded accounts
 				vec![
 					get_account_id_from_seed::<sr25519::Public>("Alice"),
@@ -90,6 +96,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 				wasm_binary,
 				// Sudo account
 				get_account_id_from_seed::<sr25519::Public>("Alice"),
+				vec![authority_keys_from_seed("Alice"), authority_keys_from_seed("Bob")],
 				// Pre-funded accounts
 				vec![
 					get_account_id_from_seed::<sr25519::Public>("Alice"),
@@ -130,6 +137,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 fn testnet_genesis(
 	wasm_binary: &[u8],
 	root_key: AccountId,
+	initial_authorities: Vec<GrandpaId>,
 	endowed_accounts: Vec<AccountId>,
 	endowed_utxos: Vec<sr25519::Public>,
 	_enable_println: bool,
@@ -146,10 +154,10 @@ fn testnet_genesis(
 		// aura: AuraConfig {
 		// 	authorities: initial_authorities.iter().map(|x| (x.0.clone())).collect(),
 		// },
-		// grandpa: GrandpaConfig {
-		// 	// authorities: initial_authorities.iter().map(|x| (x.clone(), 1)).collect(),
-		// 	authorities: vec![],
-		// },
+		grandpa: GrandpaConfig {
+			authorities: initial_authorities.iter().map(|x| (x.clone(), 1)).collect(),
+			// authorities: vec![],
+		},
 		sudo: SudoConfig {
 			// Assign network admin rights.
 			key: Some(root_key),

@@ -4250,6 +4250,7 @@ dependencies = [
  "sc-consensus-pow",
  "sc-executor",
  "sc-finality-grandpa",
+ "sc-finality-grandpa-rpc",
  "sc-keystore",
  "sc-network",
  "sc-rpc",
@@ -6283,6 +6284,27 @@ dependencies = [
  "sp-keystore",
  "sp-runtime",
  "substrate-prometheus-endpoint",
+ "thiserror",
+]
+
+[[package]]
+name = "sc-finality-grandpa-rpc"
+version = "0.10.0-dev"
+source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v0.9.30#a3ed0119c45cdd0d571ad34e5b3ee7518c8cef8d"
+dependencies = [
+ "finality-grandpa",
+ "futures",
+ "jsonrpsee",
+ "log",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-finality-grandpa",
+ "sc-rpc",
+ "serde",
+ "serde_json",
+ "sp-blockchain",
+ "sp-core",
+ "sp-runtime",
  "thiserror",
 ]
 

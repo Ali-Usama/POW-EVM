@@ -110,13 +110,23 @@ pub fn new_partial(
 		(
 			FrontierBlockImport<
 				Block,
-				POWBlockImport,
+				sc_finality_grandpa::GrandpaBlockImport<
+					FullBackend,
+					Block,
+					FullClient,
+					FullSelectChain,
+				>,
 				FullClient,
 			>,
 			Arc<fc_db::Backend<Block>>,
 			Option<Telemetry>,
 			(FeeHistoryCache, FeeHistoryCacheLimit),
-			POWBlockImport,
+			(POWBlockImport,
+			 sc_finality_grandpa::LinkHalf<
+				 Block,
+				 FullClient,
+				 FullSelectChain,
+			 >, )
 		),
 	>,
 	ServiceError,
@@ -166,6 +176,13 @@ pub fn new_partial(
 		client.clone(),
 	);
 
+	let (grandpa_block_import, grandpa_link) = sc_finality_grandpa::block_import(
+		client.clone(),
+		&(client.clone() as Arc<_>),
+		select_chain.clone(),
+		telemetry.as_ref().map(|x| x.handle()),
+	)?;
+
 	let algorithm = Sha3Algorithm::new(client.clone());
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
@@ -192,7 +209,7 @@ pub fn new_partial(
 	)?;
 
 	let frontier_block_import = FrontierBlockImport::new(
-		pow_block_import.clone(),
+		grandpa_block_import.clone(),
 		client.clone(),
 		frontier_backend.clone(),
 	);
@@ -213,6 +230,8 @@ pub fn new_partial(
 		None,
 	)?;
 
+	let import_setup = (pow_block_import, grandpa_link);
+
 	Ok(sc_service::PartialComponents {
 		client,
 		backend,
@@ -221,7 +240,7 @@ pub fn new_partial(
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: (frontier_block_import, frontier_backend, telemetry, fee_history, pow_block_import),
+		other: (frontier_block_import, frontier_backend, telemetry, fee_history, import_setup),
 	})
 }
 
@@ -283,7 +302,7 @@ pub fn decode_author(
 
 /// Builds a new service for a full client.
 pub fn new_full(
-	mut config: Configuration, author: Option<&str>
+	mut config: Configuration, author: Option<&str>,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -294,7 +313,7 @@ pub fn new_full(
 		select_chain,
 		transaction_pool,
 		other: (block_import, frontier_backend, mut telemetry, fee_history,
-			pow_block_import),
+		import_setup),
 	} = new_partial(&config)?;
 
 	if let Some(url) = &config.keystore_remote {
@@ -316,6 +335,11 @@ pub fn new_full(
 		.network
 		.extra_sets
 		.push(sc_finality_grandpa::grandpa_peers_set_config(grandpa_protocol_name.clone()));
+	let warp_sync = Arc::new(sc_finality_grandpa::warp_proof::NetworkProvider::new(
+		backend.clone(),
+		import_setup.1.shared_authority_set().clone(),
+		Vec::default(),
+	));
 
 	let (network, system_rpc_tx, tx_handler_controller, network_starter) =
 		sc_service::build_network(sc_service::BuildNetworkParams {
@@ -325,7 +349,7 @@ pub fn new_full(
 			spawn_handle: task_manager.spawn_handle(),
 			import_queue,
 			block_announce_validator_builder: None,
-			warp_sync: None,
+			warp_sync: Some(warp_sync),
 		})?;
 
 	if config.offchain_worker.enabled {
@@ -348,6 +372,7 @@ pub fn new_full(
 	let keystore_path = config.keystore.path().map(|p| p.to_owned());
 
 	let rpc_extensions_builder = {
+		let (_, grandpa_link) = &import_setup;
 		let client = client.clone();
 		let pool = transaction_pool.clone();
 		let network = network.clone();
@@ -362,7 +387,15 @@ pub fn new_full(
 			prometheus_registry.clone(),
 		));
 
-		Box::new(move |deny_unsafe, _| {
+		let justification_stream = grandpa_link.justification_stream();
+		let shared_authority_set = grandpa_link.shared_authority_set().clone();
+		let shared_voter_state = SharedVoterState::empty();
+		let finality_proof_provider = sc_finality_grandpa::FinalityProofProvider::new_for_service(
+			backend.clone(),
+			Some(shared_authority_set.clone()),
+		);
+
+		Box::new(move |deny_unsafe, subscription_executor| {
 			let deps =
 				crate::rpc::FullDeps {
 					client: client.clone(),
@@ -375,6 +408,13 @@ pub fn new_full(
 					block_data_cache: block_data_cache.clone(),
 					fee_history_cache: fee_history_cache.clone(),
 					fee_history_cache_limit,
+					grandpa: crate::rpc::GrandpaDeps {
+						shared_voter_state: shared_voter_state.clone(),
+						shared_authority_set: shared_authority_set.clone(),
+						justification_stream: justification_stream.clone(),
+						subscription_executor,
+						finality_provider: finality_proof_provider.clone(),
+					},
 				};
 			crate::rpc::create_full(deps).map_err(Into::into)
 		})
@@ -409,70 +449,117 @@ pub fn new_full(
 			.for_each(|()| future::ready(())),
 	);
 
-	let algorithm = Sha3Algorithm::new(client.clone());
-	let proposer_factory = sc_basic_authorship::ProposerFactory::new(
-		task_manager.spawn_handle(),
-		client.clone(),
-		transaction_pool,
-		prometheus_registry.as_ref(),
-		telemetry.as_ref().map(|x| x.handle()),
-	);
+	let (pow_block_import, grandpa_link) = import_setup;
 
-	// let can_author_with =
-	// 	sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
-	let select_chain = sc_consensus::LongestChain::new(backend.clone());
+	if role.is_authority() {
+		let algorithm = Sha3Algorithm::new(client.clone());
+		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
+			task_manager.spawn_handle(),
+			client.clone(),
+			transaction_pool,
+			prometheus_registry.as_ref(),
+			telemetry.as_ref().map(|x| x.handle()),
+		);
 
-	let author = decode_author(author, keystore_container.sync_keystore(), keystore_path)?;
+		// let can_author_with =
+		// 	sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
+		let select_chain = sc_consensus::LongestChain::new(backend.clone());
 
-	let (_worker, worker_task) = sc_consensus_pow::start_mining_worker(
-		Box::new(pow_block_import),
-		client,
-		select_chain,
-		algorithm.clone(),
-		proposer_factory, network.clone(), network.clone(),
-		Some(author.encode()),
-		move |_, ()| async move {
-			let provider = sp_timestamp::InherentDataProvider::from_system_time();
-			Ok(provider)
-		},
-		// Time to wait for a new block before starting to mine a new one
-		Duration::new(10, 0),
-		// How long to take to actually build the block (i.e. executing extrinsic)
-		Duration::new(10, 0),
-	);
+		let author = decode_author(author, keystore_container.sync_keystore(), keystore_path)?;
 
-	// the AURA authoring task is considered essential, i.e. if it
-	// fails we take down the service with it.
-	task_manager
-		.spawn_essential_handle()
-		.spawn("pow", Some("block-authoring"), worker_task);
+		let (_worker, worker_task) = sc_consensus_pow::start_mining_worker(
+			Box::new(pow_block_import),
+			client,
+			select_chain,
+			algorithm.clone(),
+			proposer_factory, network.clone(), network.clone(),
+			Some(author.encode()),
+			move |_, ()| async move {
+				let provider = sp_timestamp::InherentDataProvider::from_system_time();
+				Ok(provider)
+			},
+			// Time to wait for a new block before starting to mine a new one
+			Duration::new(10, 0),
+			// How long to take to actually build the block (i.e. executing extrinsic)
+			Duration::new(10, 0),
+		);
 
-	// Start Mining
-	// (from recipes a bit modified)
-	let mut nonce: U256 = U256::from(0);
-	thread::spawn(move || loop {
-		let worker = _worker.clone();
-		let metadata = worker.metadata();
-		if let Some(metadata) = metadata {
-			let compute = Compute {
-				difficulty: metadata.difficulty,
-				pre_hash: metadata.pre_hash,
-				nonce,
-			};
-			let seal = compute.compute();
-			if hash_meets_difficulty(&seal.work, seal.difficulty) {
-				nonce = U256::from(0);
-				let _ = futures::executor::block_on(worker.submit(seal.encode()));
-			} else {
-				nonce = nonce.saturating_add(U256::from(1));
-				if nonce == U256::MAX {
+		// the AURA authoring task is considered essential, i.e. if it
+		// fails we take down the service with it.
+		task_manager
+			.spawn_essential_handle()
+			.spawn("pow", Some("block-authoring"), worker_task);
+
+		// Start Mining
+		// (from recipes a bit modified)
+		let mut nonce: U256 = U256::from(0);
+		thread::spawn(move || loop {
+			let worker = _worker.clone();
+			let metadata = worker.metadata();
+			if let Some(metadata) = metadata {
+				let compute = Compute {
+					difficulty: metadata.difficulty,
+					pre_hash: metadata.pre_hash,
+					nonce,
+				};
+				let seal = compute.compute();
+				if hash_meets_difficulty(&seal.work, seal.difficulty) {
 					nonce = U256::from(0);
+					let _ = futures::executor::block_on(worker.submit(seal.encode()));
+				} else {
+					nonce = nonce.saturating_add(U256::from(1));
+					if nonce == U256::MAX {
+						nonce = U256::from(0);
+					}
 				}
+			} else {
+				thread::sleep(Duration::new(1, 0));
 			}
-		} else {
-			thread::sleep(Duration::new(1, 0));
-		}
-	});
+		});
+	}
+
+	if enable_grandpa {
+		// if the node isn't actively participating in consensus then it doesn't
+		// need a keystore, regardless of which protocol we use below.
+		let keystore =
+			if role.is_authority() { Some(keystore_container.sync_keystore()) } else { None };
+
+		let grandpa_config = sc_finality_grandpa::Config {
+			// FIXME #1578 make this available through chainspec
+			gossip_duration: Duration::from_millis(333),
+			justification_period: 512,
+			name: Some(name),
+			observer_enabled: false,
+			keystore,
+			local_role: role,
+			telemetry: telemetry.as_ref().map(|x| x.handle()),
+			protocol_name: grandpa_protocol_name,
+		};
+
+		// start the full GRANDPA voter
+		// NOTE: non-authorities could run the GRANDPA observer protocol, but at
+		// this point the full voter should provide better guarantees of block
+		// and vote data availability than the observer. The observer has not
+		// been tested extensively yet and having most nodes in a network run it
+		// could lead to finality stalls.
+		let grandpa_config = sc_finality_grandpa::GrandpaParams {
+			config: grandpa_config,
+			link: grandpa_link,
+			network: network.clone(),
+			voting_rule: sc_finality_grandpa::VotingRulesBuilder::default().build(),
+			prometheus_registry,
+			shared_voter_state: SharedVoterState::empty(),
+			telemetry: telemetry.as_ref().map(|x| x.handle()),
+		};
+
+		// the GRANDPA voter task is considered infallible, i.e.
+		// if it fails we take down the service with it.
+		task_manager.spawn_essential_handle().spawn_blocking(
+			"grandpa-voter",
+			None,
+			sc_finality_grandpa::run_grandpa_voter(grandpa_config)?,
+		);
+	}
 
 
 	network_starter.start_network();

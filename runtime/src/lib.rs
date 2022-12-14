@@ -111,12 +111,12 @@ pub mod opaque {
 	/// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
 
-	// impl_opaque_keys! {
-	// 	pub struct SessionKeys {
-	// 		// pub aura: Aura,
-	// 		pub grandpa: Grandpa,
-	// 	}
-	// }
+	impl_opaque_keys! {
+		pub struct SessionKeys {
+			// pub aura: Aura,
+			pub grandpa: Grandpa,
+		}
+	}
 }
 
 // To learn more about runtime versioning, see:
@@ -243,24 +243,24 @@ impl pallet_aura::Config for Runtime {
 	type DisabledValidators = ();
 }
 
-// impl pallet_grandpa::Config for Runtime {
-// 	type RuntimeEvent = RuntimeEvent;
-//
-// 	type KeyOwnerProof =
-// 	<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
-//
-// 	type KeyOwnerIdentification = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
-// 		KeyTypeId,
-// 		GrandpaId,
-// 	)>>::IdentificationTuple;
-//
-// 	type KeyOwnerProofSystem = ();
-//
-// 	type HandleEquivocation = ();
-//
-// 	type WeightInfo = ();
-// 	type MaxAuthorities = ConstU32<32>;
-// }
+impl pallet_grandpa::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+
+	type KeyOwnerProof =
+	<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
+
+	type KeyOwnerIdentification = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
+		KeyTypeId,
+		GrandpaId,
+	)>>::IdentificationTuple;
+
+	type KeyOwnerProofSystem = ();
+
+	type HandleEquivocation = ();
+
+	type WeightInfo = ();
+	type MaxAuthorities = ConstU32<32>;
+}
 
 impl pallet_timestamp::Config for Runtime {
 	/// A timestamp: milliseconds since the unix epoch.
@@ -447,7 +447,7 @@ construct_runtime!(
 		Timestamp: pallet_timestamp,
 		Authorship: pallet_authorship,
 		// Aura: pallet_aura,
-		// Grandpa: pallet_grandpa,
+		Grandpa: pallet_grandpa,
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
 		Sudo: pallet_sudo,
@@ -818,45 +818,45 @@ impl_runtime_apis! {
 
 	impl sp_session::SessionKeys<Block> for Runtime {
 		fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
-			Vec::new()
+			opaque::SessionKeys::generate(seed)
 		}
 
 		fn decode_session_keys(
 			encoded: Vec<u8>,
 		) -> Option<Vec<(Vec<u8>, KeyTypeId)>> {
-			None
+			opaque::SessionKeys::decode_into_raw_public_keys(&encoded)
 		}
 	}
 
-	// impl fg_primitives::GrandpaApi<Block> for Runtime {
-	// 	fn grandpa_authorities() -> GrandpaAuthorityList {
-	// 		Grandpa::grandpa_authorities()
-	// 	}
-	//
-	// 	fn current_set_id() -> fg_primitives::SetId {
-	// 		Grandpa::current_set_id()
-	// 	}
-	//
-	// 	fn submit_report_equivocation_unsigned_extrinsic(
-	// 		_equivocation_proof: fg_primitives::EquivocationProof<
-	// 			<Block as BlockT>::Hash,
-	// 			NumberFor<Block>,
-	// 		>,
-	// 		_key_owner_proof: fg_primitives::OpaqueKeyOwnershipProof,
-	// 	) -> Option<()> {
-	// 		None
-	// 	}
-	//
-	// 	fn generate_key_ownership_proof(
-	// 		_set_id: fg_primitives::SetId,
-	// 		_authority_id: GrandpaId,
-	// 	) -> Option<fg_primitives::OpaqueKeyOwnershipProof> {
-	// 		// NOTE: this is the only implementation possible since we've
-	// 		// defined our key owner proof type as a bottom type (i.e. a type
-	// 		// with no values).
-	// 		None
-	// 	}
-	// }
+	impl fg_primitives::GrandpaApi<Block> for Runtime {
+		fn grandpa_authorities() -> GrandpaAuthorityList {
+			Grandpa::grandpa_authorities()
+		}
+
+		fn current_set_id() -> fg_primitives::SetId {
+			Grandpa::current_set_id()
+		}
+
+		fn submit_report_equivocation_unsigned_extrinsic(
+			_equivocation_proof: fg_primitives::EquivocationProof<
+				<Block as BlockT>::Hash,
+				NumberFor<Block>,
+			>,
+			_key_owner_proof: fg_primitives::OpaqueKeyOwnershipProof,
+		) -> Option<()> {
+			None
+		}
+
+		fn generate_key_ownership_proof(
+			_set_id: fg_primitives::SetId,
+			_authority_id: GrandpaId,
+		) -> Option<fg_primitives::OpaqueKeyOwnershipProof> {
+			// NOTE: this is the only implementation possible since we've
+			// defined our key owner proof type as a bottom type (i.e. a type
+			// with no values).
+			None
+		}
+	}
 
 	impl frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Index> for Runtime {
 		fn account_nonce(account: AccountId) -> Index {
