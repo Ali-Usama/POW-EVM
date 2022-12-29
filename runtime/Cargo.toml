@@ -65,6 +65,16 @@ sp-consensus-pow = { version = "0.10.0-dev", git = "https://github.com/paritytec
 pallet-treasury = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
 pallet-authorship = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.30" }
 
+# contract dependencies
+pallet-contracts = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30", default-features = false}
+pallet-contracts-primitives = { version = "6.0.0", git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30", default-features = false}
+pallet-contracts-rpc-runtime-api = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30", default-features = false}
+#pallet-contracts-rpc = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.30", default-features = false}
+
+# Only used in benchmarking to generate random contract code
+rand = { version = "0.8", optional = true, default-features = false }
+getrandom = { version = "0.2", features = ["js"] }
+
 # Local Dependencies
 pallet-template = { version = "4.0.0-dev", default-features = false, path = "../pallets/template" }
 pallet-difficulty = { version = "4.0.0-dev", default-features = false, path = "../pallets/difficulty" }
@@ -93,6 +103,10 @@ std = [
 	"pallet-authorship/std",
 	"pallet-balances/std",
 	"pallet-base-fee/std",
+	"pallet-contracts/std",
+	"pallet-contracts-primitives/std",
+	"pallet-contracts-rpc-runtime-api/std",
+#	"pallet-contracts-rpc/std",
 	"pallet-evm/std",
 	"pallet-ethereum/std",
 	"pallet-grandpa/std",
@@ -104,6 +118,7 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-treasury/std",
 	"pallet-treasury/std",
+	"rand/std",
 	"serde",
 	"sp-api/std",
 	"sp-block-builder/std",
