@@ -1,10 +1,9 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use node_template_runtime::{self, opaque::Block, RuntimeApi};
-use sc_client_api::{BlockBackend, BlockchainEvents, ExecutorProvider};
+use sc_client_api::{BlockBackend, BlockchainEvents};
 // use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 pub use sc_executor::NativeElseWasmExecutor;
-use sc_finality_grandpa::SharedVoterState;
 use sc_keystore::LocalKeystore;
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager, BasePath};
@@ -19,7 +18,6 @@ use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit};
 use fc_consensus::FrontierBlockImport;
 // use sp_consensus::CanAuthorWithNativeNativeVersion;
 use futures::StreamExt;
-use sp_runtime::traits::IdentifyAccount;
 use sp_core::{
 	Encode, U256, H256, crypto::{Ss58AddressFormat, Ss58AddressFormatRegistry, UncheckedFrom, Ss58Codec},
 	Pair,
@@ -336,12 +334,7 @@ pub fn new_full(
 			network.clone(),
 		);
 	}
-
-	let role = config.role.clone();
-	let force_authoring = config.force_authoring;
-	let backoff_authoring_blocks: Option<()> = None;
-	let name = config.network.node_name.clone();
-	let enable_grandpa = !config.disable_grandpa;
+	
 	let prometheus_registry = config.prometheus_registry().cloned();
 	let is_authority = config.role.is_authority();
 	let (fee_history_cache, fee_history_cache_limit) = fee_history;

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::collections::BTreeMap;
 
 use jsonrpsee::RpcModule;
-use node_template_runtime::{opaque::Block, AccountId, Balance, Index, Hash};
+use node_template_runtime::{opaque::Block, AccountId, Balance, Index, Hash, BlockNumber};
 use sc_client_api::{backend::{Backend, StorageProvider, StateBackend},
 					client::BlockchainEvents,
 					AuxStore};
@@ -107,12 +107,14 @@ pub fn create_full<C, P, BE, A>(
 		C::Api: BlockBuilder<Block>,
 		C::Api: fp_rpc::ConvertTransactionRuntimeApi<Block>,
 		C::Api: fp_rpc::EthereumRuntimeRPCApi<Block>,
+		C::Api: pallet_contracts_rpc::ContractsRuntimeApi<Block, AccountId, Balance, BlockNumber, Hash>,
 		P: TransactionPool<Block=Block> + 'static,
 		A: ChainApi<Block=Block> + 'static,
 {
 	use fc_rpc::{Eth, EthApiServer, Net, NetApiServer};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
+	use pallet_contracts_rpc::{Contracts, ContractsApiServer};
 
 	let mut module = RpcModule::new(());
 	let FullDeps {
@@ -154,6 +156,7 @@ pub fn create_full<C, P, BE, A>(
 			10,
 		)
 			.into_rpc())?;
+	module.merge(Contracts::new(client.clone()).into_rpc())?;
 
 	// Extend this RPC with a custom API by using the following syntax.
 	// `YourRpcStruct` should have a reference to a client, which is needed
